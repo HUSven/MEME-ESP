@@ -1,32 +1,26 @@
 #include <esp_now.h>
 #include <WiFi.h>
 
-typedef struct struct_message {
-  int number;
-} struct_message;
+typedef struct CommunicationMessage {
+  uint8_t SOC;
+  uint8_t PL;
+  uint8_t sourceID;
+  uint8_t destID;
+  uint8_t PC;
+  uint8_t FC;
+  uint8_t data;
+  uint8_t EOT;
+  uint8_t LRC;
+} CommunicationMessage;
 
-struct_message myData;
+CommunicationMessage message;
 
-// Replace with the OTHER board's MAC
-uint8_t peerMAC[] = {0x1C,0xDB,0xD4,0xF0,0x49,0xE8}; // if uploading to Board A
-// For Board B, peerMAC = MAC of Board A
+int packetsCounter = 0;
 
-// void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
-//   struct_message receivedData;
-//   memcpy(&receivedData, incomingData, sizeof(receivedData));
+uint8_t peerMAC[] = {0x1C,0xDB,0xD4,0xF0,0x49,0xE8};
 
-//   char macStr[18];
-//   snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
-//            recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
-//            recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
-
-//   Serial.print("Received from ");
-//   Serial.print(macStr);
-//   Serial.print(": ");
-//   Serial.println(receivedData);
-// }
-
-void setup() {
+void setup()
+{
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);
 
@@ -37,10 +31,6 @@ void setup() {
     return;
   }
 
-  // Register receive callback
-  // esp_now_register_recv_cb(OnDataRecv);
-
-  // Add peer
   esp_now_peer_info_t peerInfo = {};
   memcpy(peerInfo.peer_addr, peerMAC, 6);
   peerInfo.channel = 0;
@@ -51,15 +41,28 @@ void setup() {
   }
 }
 
-void loop() {
-  myData.number = random(0, 100);
-  esp_err_t result = esp_now_send(peerMAC, (uint8_t *)&myData, sizeof(myData));
+void loop()
+{
+  esp_err_t result = esp_now_send(peerMAC, (uint8_t *)&message, sizeof(message));
   if(result == ESP_OK) {
     Serial.print("Sent: ");
-    Serial.println(myData.number);
+    Serial.println(message.data);
   } else {
     Serial.println("Send Error");
   }
 
   delay(2000);
+}
+
+CommunicationMessage prepareMessage() 
+{
+  message.SOC = 0x01;
+  message.PL = sizeof(CommunicationMessage);
+  message.sourceID = 0x13;
+  message.destID = 0x26;
+  message.PC = packetsCounter;
+  message.FC = 0x02;
+  message.data = 0x10;
+  message.EOT = 0x02;
+  
 }
