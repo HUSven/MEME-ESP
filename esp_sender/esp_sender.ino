@@ -1,7 +1,7 @@
 /*
  * ESP-NOW Transceiver - Apparaat A (Zender/Patiënt)
  * Communicatieprotocol: Mensen Meten v1.0
- */
+*/
 
 #include <WiFi.h>
 #include <esp_now.h>
@@ -10,20 +10,20 @@
 uint8_t peerAddress[] = {0x1C,0xDB,0xD4,0xF0,0x49,0xE8};
 
 // Zender / afzender
-#define SOURCE_ID  0x01
-#define DEST_ID    0x02
+#define SOURCE_ID 0x01
+#define DEST_ID 0x02
 
 // Functiecodes
-#define FC_RETRANSMIT  0x01
-#define FC_DATA        0x02
-#define FC_RESET       0x03
-#define FC_STATUS      0x04
-#define FC_ACK         0x05
+#define FC_RETRANSMIT 0x01
+#define FC_DATA 0x02
+#define FC_RESET 0x03
+#define FC_STATUS 0x04
+#define FC_ACK 0x05
 
 // Protocol constanten
-#define SOC_BYTE       0x01
-#define EOT_BYTE       0x02
-#define MAX_RETRIES    3
+#define SOC_BYTE 0x01
+#define EOT_BYTE 0x02
+#define MAX_RETRIES 3
 #define ACK_TIMEOUT_MS 500
 
 // Structure van bericht
@@ -42,9 +42,9 @@ typedef struct CommunicationMessage {
 CommunicationMessage txMsg;
 CommunicationMessage rxMsg;
 
-uint8_t packetCounter       = 0;
-bool    ackReceived         = false;
-bool    retransmitRequested = false;
+uint8_t packetCounter = 0;
+bool ackReceived = false;
+bool retransmitRequested = false;
 
 esp_now_peer_info_t peerInfo;
 
@@ -245,6 +245,8 @@ void setup() {
 
 void loop() {
   uint8_t data = random(0, 100);
+  Serial.print("Random Number: ");
+  Serial.println(data);
   sendData(data);
 
   delay(3000);
