@@ -139,8 +139,8 @@ void handleReceivedPacket(CommunicationMessage *msg) {
       break;
 
     case FC_DATA:
-      Serial.print("[DATA] Ontvangen waarde: 0x");
-      Serial.println(msg->data, HEX);
+      Serial.print("[DATA] Ontvangen waarde: ");
+      Serial.println(msg->data);
       sendAck(msg->PC);
       break;
 
@@ -172,8 +172,8 @@ void sendData(uint8_t value) {
     Serial.print(attempt);
     Serial.print(" | PC: ");
     Serial.print(packetCounter);
-    Serial.print(" | Data: 0x");
-    Serial.println(value, HEX);
+    Serial.print(" | Data: ");
+    Serial.println(value);
 
     esp_now_send(peerAddress, (uint8_t *)&txMsg, sizeof(txMsg));
 
