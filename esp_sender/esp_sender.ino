@@ -25,29 +25,6 @@ const float tempTable[TABLE_SIZE][2] = {
   {4095.0f, 43.0f},
 };
 
-float rawToTemp(float raw) {
-  if (raw <= tempTable[0][0])              return tempTable[0][1];
-  if (raw >= tempTable[TABLE_SIZE - 1][0]) return tempTable[TABLE_SIZE - 1][1];
-  for (int i = 0; i < TABLE_SIZE - 1; i++) {
-    float r0 = tempTable[i][0], t0 = tempTable[i][1];
-    float r1 = tempTable[i+1][0], t1 = tempTable[i+1][1];
-    if (raw >= r0 && raw <= r1)
-      return t0 + (t1 - t0) * (raw - r0) / (r1 - r0);
-  }
-  return -1.0f;
-}
-
-float readTemperature(float* rawOut = nullptr) {
-  long rawSum = 0;
-  for (int i = 0; i < AVG_SAMPLES; i++) {
-    rawSum += analogRead(ADC_PIN_TEMP);
-    delayMicroseconds(200);
-  }
-  float adcAvg = static_cast<float>(rawSum) / AVG_SAMPLES;
-  if (rawOut) *rawOut = adcAvg;
-  return rawToTemp(adcAvg);
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // HEARTBEAT / BPM
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -66,43 +43,6 @@ bool signalActive = false;
 
 unsigned long beatTimes[20];
 unsigned long lastBeatTime = 0;
-
-void updateHeartbeat() {
-  int signal = analogRead(pulsePin);
-  unsigned long now = millis();
-
-  // Track & smooth peak
-  if (signal > peakValue) peakValue = signal;
-  avgPeak = (avgPeak * 9 + peakValue) / 10;
-
-  // Dynamic threshold
-  int dynamicThreshold = max(avgPeak - peakDrop, baseThreshold);
-
-  // Beat detection
-  if (signal > dynamicThreshold && !beatDetected) {
-    beatDetected = true;
-    beatTimes[beatCount % 20] = now;
-    beatCount++;
-    lastBeatTime = now;
-    signalActive = true;
-    peakValue = 0;
-  }
-  if (signal < dynamicThreshold) beatDetected = false;
-
-  // No-beat timeout → freeze BPM display
-  if (signalActive && (now - lastBeatTime > NO_BEAT_TIMEOUT)) {
-    signalActive = false;
-  }
-
-  // Recalculate BPM over 5-second window
-  if (signalActive) {
-    int beatsInWindow = 0;
-    for (int i = 0; i < min(beatCount, 20); i++) {
-      if (now - beatTimes[i] <= WINDOW_MS) beatsInWindow++;
-    }
-    bpm = beatsInWindow * 12;
-  }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ESP-NOW PROTOCOL
@@ -143,6 +83,66 @@ bool    retransmitRequested = false;
 
 esp_now_peer_info_t peerInfo;
 
+float rawToTemp(float raw) {
+  if (raw <= tempTable[0][0])              return tempTable[0][1];
+  if (raw >= tempTable[TABLE_SIZE - 1][0]) return tempTable[TABLE_SIZE - 1][1];
+  for (int i = 0; i < TABLE_SIZE - 1; i++) {
+    float r0 = tempTable[i][0], t0 = tempTable[i][1];
+    float r1 = tempTable[i+1][0], t1 = tempTable[i+1][1];
+    if (raw >= r0 && raw <= r1)
+      return t0 + (t1 - t0) * (raw - r0) / (r1 - r0);
+  }
+  return -1.0f;
+}
+
+float readTemperature(float* rawOut = nullptr) {
+  long rawSum = 0;
+  for (int i = 0; i < AVG_SAMPLES; i++) {
+    rawSum += analogRead(ADC_PIN_TEMP);
+    delayMicroseconds(200);
+  }
+  float adcAvg = static_cast<float>(rawSum) / AVG_SAMPLES;
+  if (rawOut) *rawOut = adcAvg;
+  return rawToTemp(adcAvg);
+}
+
+void updateHeartbeat() {
+  int signal = analogRead(pulsePin);
+  unsigned long now = millis();
+
+  // Track & smooth peak
+  if (signal > peakValue) peakValue = signal;
+  avgPeak = (avgPeak * 9 + peakValue) / 10;
+
+  // Dynamic threshold
+  int dynamicThreshold = max(avgPeak - peakDrop, baseThreshold);
+
+  // Beat detection
+  if (signal > dynamicThreshold && !beatDetected) {
+    beatDetected = true;
+    beatTimes[beatCount % 20] = now;
+    beatCount++;
+    lastBeatTime = now;
+    signalActive = true;
+    peakValue = 0;
+  }
+  if (signal < dynamicThreshold) beatDetected = false;
+
+  // No-beat timeout → freeze BPM display
+  if (signalActive && (now - lastBeatTime > NO_BEAT_TIMEOUT)) {
+    signalActive = false;
+  }
+
+  // Recalculate BPM over 5-second window
+  if (signalActive) {
+    int beatsInWindow = 0;
+    for (int i = 0; i < min(beatCount, 20); i++) {
+      if (now - beatTimes[i] <= WINDOW_MS) beatsInWindow++;
+    }
+    bpm = beatsInWindow * 12;
+  }
+}
+
 uint8_t calculateLRC(CommunicationMessage *msg) {
   return msg->PL + msg->sourceID + msg->destID + msg->PC +
          msg->FC + msg->data + msg->data2 + msg->EOT;
@@ -156,8 +156,8 @@ void buildPacket(CommunicationMessage *msg, uint8_t fc,
   msg->destID   = DEST_ID;
   msg->PC       = packetCounter;
   msg->FC       = fc;
-  msg->data     = data;
-  msg->data2    = data2;
+  msg->data     = 0x00;
+  msg->data2    = 0x00;
   msg->EOT      = EOT_BYTE;
   msg->LRC      = calculateLRC(msg);
 }
@@ -252,7 +252,21 @@ void sendSensorData(uint8_t tempByte, uint8_t bpmByte) {
     Serial.printf("\n[SEND] Poging %d | PC: %d | Temp: %d | BPM: %d\n",
                   attempt, packetCounter, tempByte, bpmByte);
 
-    esp_now_send(peerAddress, (uint8_t *)&txMsg, sizeof(txMsg));
+    esp_err_t result = esp_now_send(peerAddress, (uint8_t *)&txMsg, sizeof(txMsg));
+    if (result == ESP_OK) {
+      Serial.println("[SEND] Sent successfully");
+    } else {
+      switch (result) {
+        case ESP_ERR_ESPNOW_NOT_INIT: Serial.println("ESPNOW not initialized"); break;
+        case ESP_ERR_ESPNOW_ARG: Serial.println("Invalid argument"); break;
+        case ESP_ERR_ESPNOW_NO_MEM: Serial.println("Out of memory"); break;
+        case ESP_ERR_ESPNOW_NOT_FOUND: Serial.println("Peer not found"); break;
+        case ESP_ERR_ESPNOW_IF: Serial.println("WiFi interface mismatch"); break;
+        case ESP_ERR_ESPNOW_FULL: Serial.println("Peer list full"); break;
+        case ESP_ERR_ESPNOW_EXIST: Serial.println("Peer already exists"); break;
+        default: Serial.println("Unknown error"); break;
+      }
+    }
 
     unsigned long t = millis();
     while (millis() - t < ACK_TIMEOUT_MS) {
@@ -269,6 +283,10 @@ void sendSensorData(uint8_t tempByte, uint8_t bpmByte) {
 void onDataSent(const wifi_tx_info_t *txInfo, esp_now_send_status_t status) {
   Serial.print("[ESP-NOW] Status: ");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "OK" : "MISLUKT");
+  if (status != ESP_NOW_SEND_SUCCESS) {
+    Serial.print("[ESP-NOW] ERROR: ");
+    Serial.println(ESP_ERR_ESPNOW_BASE);
+  }
 }
 
 void onDataRecv(const esp_now_recv_info *recvInfo,
@@ -309,7 +327,7 @@ void setup() {
   esp_now_register_send_cb(onDataSent);
   esp_now_register_recv_cb(onDataRecv);
 
-  memcpy(peerInfo.peer_addr, peerAddress, 6);
+  memcpy(peerInfo.peer_addr, peerAddress, 7);
   peerInfo.channel = 0;
   peerInfo.encrypt = false;
 
@@ -318,7 +336,7 @@ void setup() {
     return;
   }
 
-  Serial.println("NTC + Pulse + ESP-NOW klaar!\n");
+  Serial.println("ESP-NOW + Protocol klaar!\n");
 }
 
 void loop() {
@@ -344,8 +362,8 @@ void loop() {
 
     // Encode temperature: 25–43 °C → 0–255
     // Decoder: temp = (data / 255.0f) * 18.0f + 25.0f
-    uint8_t tempByte = (uint8_t)((tempC - 25.0f) / 18.0f * 255.0f);
-
+    // uint8_t tempByte = (uint8_t)((tempC - 25.0f) / 18.0f * 255.0f);
+    uint8_t tempByte = 0x01;
     // Encode BPM: 0–255 BPM fits directly in a byte
     uint8_t bpmByte = (uint8_t)constrain(bpm, 0, 255);
 

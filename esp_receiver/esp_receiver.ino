@@ -35,6 +35,7 @@ typedef struct CommunicationMessage {
   uint8_t PC;
   uint8_t FC;
   uint8_t data;
+  uint8_t data2;
   uint8_t EOT;
   uint8_t LRC;
 } CommunicationMessage;
@@ -48,20 +49,25 @@ bool retransmitRequested = false;
 
 esp_now_peer_info_t peerInfo;
 
+uint8_t tempDecoder(uint8_t data) {
+  return (data / 255.0f) * 18.0f + 25.0f;
+}
+
 // Berekend de LRC
 uint8_t calculateLRC(CommunicationMessage *msg) {
-  return msg->PL + msg->sourceID + msg->destID + msg->PC + msg->FC + msg->data + msg->EOT;
+  return msg->PL + msg->sourceID + msg->destID + msg->PC + msg->FC + msg->data + msg->data2 + msg->EOT;
 }
 
 // Opbouwen van bericht
 void buildPacket(CommunicationMessage *msg, uint8_t fc, uint8_t data) {
   msg->SOC = SOC_BYTE;
-  msg->PL = 6;
+  msg->PL = 7;
   msg->sourceID = SOURCE_ID;
   msg->destID = DEST_ID;
   msg->PC = packetCounter;
   msg->FC = fc;
-  msg->data = data;
+  msg->data = 0x00;
+  msg->data2 = 0x00;
   msg->EOT = EOT_BYTE;
   msg->LRC = calculateLRC(msg);
 }
@@ -77,12 +83,13 @@ bool verifyPacket(CommunicationMessage *msg) {
 void sendAck(uint8_t toPC) {
   CommunicationMessage ack;
   ack.SOC = SOC_BYTE;
-  ack.PL = 6;
+  ack.PL = 7;
   ack.sourceID = SOURCE_ID;
   ack.destID = DEST_ID;
   ack.PC = toPC;
   ack.FC = FC_ACK;
   ack.data = 0x00;
+  ack.data2 = 0x00;
   ack.EOT = EOT_BYTE;
   ack.LRC = calculateLRC(&ack);
 
@@ -94,12 +101,13 @@ void sendAck(uint8_t toPC) {
 void sendRetransmit() {
   CommunicationMessage retransmit;
   retransmit.SOC = SOC_BYTE;
-  retransmit.PL = 6;
+  retransmit.PL = 7;
   retransmit.sourceID = SOURCE_ID;
   retransmit.destID = DEST_ID;
   retransmit.PC = packetCounter;
   retransmit.FC = FC_RETRANSMIT;
   retransmit.data = 0x00;
+  retransmit.data2 = 0x00;
   retransmit.EOT = EOT_BYTE;
   retransmit.LRC = calculateLRC(&retransmit);
 
@@ -139,8 +147,10 @@ void handleReceivedPacket(CommunicationMessage *msg) {
       break;
 
     case FC_DATA:
-      Serial.print("[DATA] Ontvangen waarde: ");
-      Serial.println(msg->data);
+      Serial.print("[DATA] Temp: ");
+      Serial.println(tempDecoder(msg->data));
+      Serial.print("[DATA] BPM: ");
+      Serial.println(msg->data2);
       sendAck(msg->PC);
       break;
 
@@ -172,8 +182,6 @@ void sendData(uint8_t value) {
     Serial.print(attempt);
     Serial.print(" | PC: ");
     Serial.print(packetCounter);
-    Serial.print(" | Data: ");
-    Serial.println(value);
 
     esp_now_send(peerAddress, (uint8_t *)&txMsg, sizeof(txMsg));
 
@@ -231,7 +239,7 @@ void setup() {
   esp_now_register_send_cb(onDataSent);
   esp_now_register_recv_cb(onDataRecv);
 
-  memcpy(peerInfo.peer_addr, peerAddress, 6);
+  memcpy(peerInfo.peer_addr, peerAddress, 7);
   peerInfo.channel = 0;
   peerInfo.encrypt = false;
 
@@ -244,10 +252,5 @@ void setup() {
 }
 
 void loop() {
-  uint8_t data = random(0, 100);
-  Serial.print("Random Number: ");
-  Serial.println(data);
-  sendData(data);
 
-  delay(3000);
 }
