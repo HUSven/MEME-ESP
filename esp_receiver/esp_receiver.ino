@@ -7,11 +7,11 @@
 #include <esp_now.h>
 
 // MAC address van receiver
-uint8_t peerAddress[] = {0x1C,0xDB,0xD4,0xF0,0x3E,0x3C};
+uint8_t peerAddress[] = { 0x1C, 0xDB, 0xD4, 0xF0, 0x3E, 0x3C };
 
 // Zender / afzender
-#define SOURCE_ID 0x02
-#define DEST_ID 0x01
+#define SOURCE_ID 0x01
+#define DEST_ID 0x02
 
 // Functiecodes
 #define FC_RETRANSMIT 0x01
@@ -49,27 +49,13 @@ bool retransmitRequested = false;
 
 esp_now_peer_info_t peerInfo;
 
-uint8_t tempDecoder(uint8_t data) {
+float tempDecoder(uint8_t data) {
   return (data / 255.0f) * 18.0f + 25.0f;
 }
 
 // Berekend de LRC
 uint8_t calculateLRC(CommunicationMessage *msg) {
   return msg->PL + msg->sourceID + msg->destID + msg->PC + msg->FC + msg->data + msg->data2 + msg->EOT;
-}
-
-// Opbouwen van bericht
-void buildPacket(CommunicationMessage *msg, uint8_t fc, uint8_t data) {
-  msg->SOC = SOC_BYTE;
-  msg->PL = 7;
-  msg->sourceID = SOURCE_ID;
-  msg->destID = DEST_ID;
-  msg->PC = packetCounter;
-  msg->FC = fc;
-  msg->data = 0x00;
-  msg->data2 = 0x00;
-  msg->EOT = EOT_BYTE;
-  msg->LRC = calculateLRC(msg);
 }
 
 // Bericht valideren
@@ -83,13 +69,13 @@ bool verifyPacket(CommunicationMessage *msg) {
 void sendAck(uint8_t toPC) {
   CommunicationMessage ack;
   ack.SOC = SOC_BYTE;
-  ack.PL = 7;
   ack.sourceID = SOURCE_ID;
   ack.destID = DEST_ID;
   ack.PC = toPC;
   ack.FC = FC_ACK;
   ack.data = 0x00;
   ack.data2 = 0x00;
+  ack.PL = sizeof(ack.data + ack.data2);
   ack.EOT = EOT_BYTE;
   ack.LRC = calculateLRC(&ack);
 
@@ -101,13 +87,13 @@ void sendAck(uint8_t toPC) {
 void sendRetransmit() {
   CommunicationMessage retransmit;
   retransmit.SOC = SOC_BYTE;
-  retransmit.PL = 7;
   retransmit.sourceID = SOURCE_ID;
   retransmit.destID = DEST_ID;
   retransmit.PC = packetCounter;
   retransmit.FC = FC_RETRANSMIT;
   retransmit.data = 0x00;
   retransmit.data2 = 0x00;
+  retransmit.PL = sizeof(retransmit.data + retransmit.data2);
   retransmit.EOT = EOT_BYTE;
   retransmit.LRC = calculateLRC(&retransmit);
 
@@ -147,8 +133,8 @@ void handleReceivedPacket(CommunicationMessage *msg) {
       break;
 
     case FC_DATA:
-      Serial.print("[DATA] Temp: ");
-      Serial.println(tempDecoder(msg->data));
+      Serial.printf("[DATA] Temp: ");
+      Serial.println(tempDecoder(msg->data), 1);
       Serial.print("[DATA] BPM: ");
       Serial.println(msg->data2);
       sendAck(msg->PC);
@@ -164,53 +150,16 @@ void handleReceivedPacket(CommunicationMessage *msg) {
       break;
 
     default:
-      Serial.print("[PROTOCOL] Onbekende FC: 0x"); Serial.println(msg->FC, HEX);
+      Serial.print("[PROTOCOL] Onbekende FC: 0x");
+      Serial.println(msg->FC, HEX);
       break;
   }
-}
-
-// Verstuurt het de data
-void sendData(uint8_t value) {
-  packetCounter++;
-  buildPacket(&txMsg, FC_DATA, value);
-
-  for (uint8_t attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    ackReceived = false;
-    retransmitRequested = false;
-
-    Serial.print("\n[SEND] Poging ");
-    Serial.print(attempt);
-    Serial.print(" | PC: ");
-    Serial.print(packetCounter);
-
-    esp_now_send(peerAddress, (uint8_t *)&txMsg, sizeof(txMsg));
-
-    // Wacht op ACK of retransmit verzoek
-    unsigned long t = millis();
-    while (millis() - t < ACK_TIMEOUT_MS) {
-      if (ackReceived) { 
-        Serial.println("[SEND] ACK ontvangen → succes!"); 
-        return; 
-      }
-      if (retransmitRequested) {
-        Serial.println("[SEND] Retransmit → opnieuw...");
-        break;
-      }
-      delay(10);
-    }
-
-    if (!ackReceived) {
-      Serial.println("[SEND] Timeout → volgende poging...");
-    }
-  }
-
-  Serial.println("[SEND] Max retries bereikt. Pakket verloren.");
 }
 
 // Callbacks voor ESP-NOW
 void onDataSent(const wifi_tx_info_t *txInfo, esp_now_send_status_t status) {
   Serial.print("[ESP-NOW] Verzend status: ");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "OK" : "MISLUKT");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "OK\n" : "MISLUKT\n");
 }
 
 void onDataRecv(const esp_now_recv_info *recvInfo, const uint8_t *incomingData, int len) {
@@ -252,5 +201,4 @@ void setup() {
 }
 
 void loop() {
-
 }
